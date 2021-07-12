@@ -5961,7 +5961,7 @@ func TestCheckUnnecessaryCasts(t *testing.T) {
 		t.Parallel()
 
 		checker, err := ParseAndCheckWithAny(t, `
-            let x: [String] = ["foo" as String]
+            let x: [Character] = ["c" as Character]
         `)
 
 		require.NoError(t, err)
@@ -5971,7 +5971,7 @@ func TestCheckUnnecessaryCasts(t *testing.T) {
 
 		require.IsType(t, &sema.UnnecessaryCastHint{}, hints[0])
 		castHint := hints[0].(*sema.UnnecessaryCastHint)
-		assert.Equal(t, sema.StringType, castHint.TargetType)
+		assert.Equal(t, sema.CharacterType, castHint.TargetType)
 	})
 
 	t.Run("dictionaries", func(t *testing.T) {
