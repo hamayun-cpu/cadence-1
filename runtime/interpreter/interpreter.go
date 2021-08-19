@@ -114,7 +114,7 @@ type InjectedCompositeFieldsHandlerFunc func(
 type ContractValueHandlerFunc func(
 	inter *Interpreter,
 	compositeType *sema.CompositeType,
-	constructorGenerator func(common.Address) HostFunctionValue,
+	constructorGenerator func(common.Address) *HostFunctionValue,
 	invocationRange ast.Range,
 ) *CompositeValue
 
@@ -955,7 +955,7 @@ func (interpreter *Interpreter) functionDeclarationValue(
 	declaration *ast.FunctionDeclaration,
 	functionType *sema.FunctionType,
 	lexicalScope *VariableActivation,
-) InterpretedFunctionValue {
+) *InterpretedFunctionValue {
 
 	var preConditions ast.Conditions
 	if declaration.FunctionBlock.PreConditions != nil {
@@ -973,7 +973,7 @@ func (interpreter *Interpreter) functionDeclarationValue(
 		beforeStatements = postConditionsRewrite.BeforeStatements
 	}
 
-	return InterpretedFunctionValue{
+	return &InterpretedFunctionValue{
 		Interpreter:      interpreter,
 		ParameterList:    declaration.ParameterList,
 		Type:             functionType,
@@ -1267,14 +1267,14 @@ func (interpreter *Interpreter) declareNonEnumCompositeValue(
 	} else {
 		compositeInitializerFunction := interpreter.compositeInitializerFunction(declaration, lexicalScope)
 		if compositeInitializerFunction != nil {
-			initializerFunction = *compositeInitializerFunction
+			initializerFunction = compositeInitializerFunction
 		}
 	}
 
 	var destructorFunction FunctionValue
 	compositeDestructorFunction := interpreter.compositeDestructorFunction(declaration, lexicalScope)
 	if compositeDestructorFunction != nil {
-		destructorFunction = *compositeDestructorFunction
+		destructorFunction = compositeDestructorFunction
 	}
 
 	functions := interpreter.compositeFunctions(declaration, lexicalScope)
@@ -1340,20 +1340,32 @@ func (interpreter *Interpreter) declareNonEnumCompositeValue(
 
 	qualifiedIdentifier := compositeType.QualifiedIdentifier()
 
-	constructorGenerator := func(address common.Address) HostFunctionValue {
+	constructorGenerator := func(address common.Address) *HostFunctionValue {
 		return NewHostFunctionValue(
 			func(invocation Invocation) Value {
 
-				// Load injected fields
-				var injectedFields *StringValueOrderedMap
-				if interpreter.injectedCompositeFieldsHandler != nil {
-					injectedFields = interpreter.injectedCompositeFieldsHandler(
-						interpreter,
-						location,
-						qualifiedIdentifier,
-						declaration.CompositeKind,
-					)
-				}
+			// Check that the resource is constructed
+			// in the same location as it was declared
+
+			if compositeType.Kind == common.CompositeKindResource &&
+				!common.LocationsMatch(invocation.Interpreter.Location, compositeType.Location) {
+
+				panic(ResourceConstructionError{
+					CompositeType: compositeType,
+					LocationRange: invocation.GetLocationRange(),
+				})
+			}
+
+			// Load injected fields
+			var injectedFields *StringValueOrderedMap
+			if interpreter.injectedCompositeFieldsHandler != nil {
+				injectedFields = interpreter.injectedCompositeFieldsHandler(
+					interpreter,
+					location,
+					qualifiedIdentifier,
+					declaration.CompositeKind,
+				)
+			}
 
 				fields := NewStringValueOrderedMap()
 
@@ -1493,7 +1505,10 @@ func (interpreter *Interpreter) declareEnumConstructor(
 	return lexicalScope, variable
 }
 
-func EnumConstructorFunction(caseValues []*CompositeValue, nestedVariables *StringVariableOrderedMap) HostFunctionValue {
+func EnumConstructorFunction(
+	caseValues []*CompositeValue,
+	nestedVariables *StringVariableOrderedMap,
+) *HostFunctionValue {
 
 	// Prepare a lookup table based on the big-endian byte representation
 
@@ -1667,7 +1682,7 @@ func (interpreter *Interpreter) functionWrappers(
 func (interpreter *Interpreter) compositeFunction(
 	functionDeclaration *ast.FunctionDeclaration,
 	lexicalScope *VariableActivation,
-) InterpretedFunctionValue {
+) *InterpretedFunctionValue {
 
 	functionType := interpreter.Program.Elaboration.FunctionDeclarationFunctionTypes[functionDeclaration]
 
@@ -1692,7 +1707,7 @@ func (interpreter *Interpreter) compositeFunction(
 	parameterList := functionDeclaration.ParameterList
 	statements := functionDeclaration.FunctionBlock.Block.Statements
 
-	return InterpretedFunctionValue{
+	return &InterpretedFunctionValue{
 		Interpreter:      interpreter,
 		ParameterList:    parameterList,
 		Type:             functionType,
@@ -1720,9 +1735,7 @@ func (interpreter *Interpreter) checkValueTransferTargetType(value Value, target
 		return true
 	}
 
-	dynamicTypeResults := DynamicTypeResults{}
-
-	valueDynamicType := value.DynamicType(interpreter, dynamicTypeResults)
+	valueDynamicType := value.DynamicType(interpreter, SeenReferences{})
 	if interpreter.IsSubType(valueDynamicType, targetType) {
 		return true
 	}
@@ -2485,7 +2498,7 @@ func defineBaseFunctions(activation *VariableActivation) {
 
 type converterFunction struct {
 	name      string
-	converter HostFunctionValue
+	converter *HostFunctionValue
 }
 
 // Converter functions are stateless functions. Hence they can be re-used across interpreters.
@@ -2639,12 +2652,14 @@ func (interpreter *Interpreter) IsSubType(subType DynamicType, superType sema.Ty
 		return sema.IsSubType(typedSubType.StaticType, superType)
 
 	case FunctionDynamicType:
+		// TODO: once support for dynamically casting functions is added,
+		//   ensure that constructor functions are not normal
 		return superType == sema.AnyStructType
 
 	case CompositeDynamicType:
 		return sema.IsSubType(typedSubType.StaticType, superType)
 
-	case ArrayDynamicType:
+	case *ArrayDynamicType:
 		var superTypeElementType sema.Type
 
 		switch typedSuperType := superType.(type) {
@@ -2681,7 +2696,7 @@ func (interpreter *Interpreter) IsSubType(subType DynamicType, superType sema.Ty
 
 		return true
 
-	case DictionaryDynamicType:
+	case *DictionaryDynamicType:
 
 		if typedSuperType, ok := superType.(*sema.DictionaryType); ok {
 
@@ -2831,7 +2846,7 @@ func PathToStorageKey(path PathValue) string {
 	return fmt.Sprintf("%s\x1F%s", path.Domain.Identifier(), path.Identifier)
 }
 
-func (interpreter *Interpreter) authAccountSaveFunction(addressValue AddressValue) HostFunctionValue {
+func (interpreter *Interpreter) authAccountSaveFunction(addressValue AddressValue) *HostFunctionValue {
 	return NewHostFunctionValue(func(invocation Invocation) Value {
 
 		value := invocation.Arguments[0]
@@ -2874,15 +2889,15 @@ func (interpreter *Interpreter) authAccountSaveFunction(addressValue AddressValu
 	})
 }
 
-func (interpreter *Interpreter) authAccountLoadFunction(addressValue AddressValue) HostFunctionValue {
+func (interpreter *Interpreter) authAccountLoadFunction(addressValue AddressValue) *HostFunctionValue {
 	return interpreter.authAccountReadFunction(addressValue, true)
 }
 
-func (interpreter *Interpreter) authAccountCopyFunction(addressValue AddressValue) HostFunctionValue {
+func (interpreter *Interpreter) authAccountCopyFunction(addressValue AddressValue) *HostFunctionValue {
 	return interpreter.authAccountReadFunction(addressValue, false)
 }
 
-func (interpreter *Interpreter) authAccountReadFunction(addressValue AddressValue, clear bool) HostFunctionValue {
+func (interpreter *Interpreter) authAccountReadFunction(addressValue AddressValue, clear bool) *HostFunctionValue {
 
 	return NewHostFunctionValue(func(invocation Invocation) Value {
 
@@ -2909,9 +2924,7 @@ func (interpreter *Interpreter) authAccountReadFunction(addressValue AddressValu
 
 			ty := typeParameterPair.Value
 
-			dynamicTypeResults := DynamicTypeResults{}
-
-			dynamicType := value.Value.DynamicType(interpreter, dynamicTypeResults)
+			dynamicType := value.Value.DynamicType(interpreter, SeenReferences{})
 			if !interpreter.IsSubType(dynamicType, ty) {
 				return NilValue{}
 			}
@@ -2935,7 +2948,7 @@ func (interpreter *Interpreter) authAccountReadFunction(addressValue AddressValu
 	})
 }
 
-func (interpreter *Interpreter) authAccountBorrowFunction(addressValue AddressValue) HostFunctionValue {
+func (interpreter *Interpreter) authAccountBorrowFunction(addressValue AddressValue) *HostFunctionValue {
 	return NewHostFunctionValue(func(invocation Invocation) Value {
 
 		address := addressValue.ToAddress()
@@ -2971,7 +2984,7 @@ func (interpreter *Interpreter) authAccountBorrowFunction(addressValue AddressVa
 	})
 }
 
-func (interpreter *Interpreter) authAccountLinkFunction(addressValue AddressValue) HostFunctionValue {
+func (interpreter *Interpreter) authAccountLinkFunction(addressValue AddressValue) *HostFunctionValue {
 	return NewHostFunctionValue(func(invocation Invocation) Value {
 
 		address := addressValue.ToAddress()
@@ -3019,7 +3032,7 @@ func (interpreter *Interpreter) authAccountLinkFunction(addressValue AddressValu
 	})
 }
 
-func (interpreter *Interpreter) accountGetLinkTargetFunction(addressValue AddressValue) HostFunctionValue {
+func (interpreter *Interpreter) accountGetLinkTargetFunction(addressValue AddressValue) *HostFunctionValue {
 	return NewHostFunctionValue(func(invocation Invocation) Value {
 
 		address := addressValue.ToAddress()
@@ -3049,7 +3062,7 @@ func (interpreter *Interpreter) accountGetLinkTargetFunction(addressValue Addres
 	})
 }
 
-func (interpreter *Interpreter) authAccountUnlinkFunction(addressValue AddressValue) HostFunctionValue {
+func (interpreter *Interpreter) authAccountUnlinkFunction(addressValue AddressValue) *HostFunctionValue {
 	return NewHostFunctionValue(func(invocation Invocation) Value {
 
 		address := addressValue.ToAddress()
@@ -3073,7 +3086,7 @@ func (interpreter *Interpreter) capabilityBorrowFunction(
 	addressValue AddressValue,
 	pathValue PathValue,
 	borrowType *sema.ReferenceType,
-) HostFunctionValue {
+) *HostFunctionValue {
 
 	return NewHostFunctionValue(
 		func(invocation Invocation) Value {
@@ -3131,7 +3144,7 @@ func (interpreter *Interpreter) capabilityCheckFunction(
 	addressValue AddressValue,
 	pathValue PathValue,
 	borrowType *sema.ReferenceType,
-) HostFunctionValue {
+) *HostFunctionValue {
 
 	return NewHostFunctionValue(
 		func(invocation Invocation) Value {
@@ -3392,7 +3405,7 @@ func (interpreter *Interpreter) getMember(self Value, getLocationRange func() Lo
 	return result
 }
 
-func (interpreter *Interpreter) isInstanceFunction(self Value) HostFunctionValue {
+func (interpreter *Interpreter) isInstanceFunction(self Value) *HostFunctionValue {
 	return NewHostFunctionValue(
 		func(invocation Invocation) Value {
 			firstArgument := invocation.Arguments[0]
@@ -3407,15 +3420,14 @@ func (interpreter *Interpreter) isInstanceFunction(self Value) HostFunctionValue
 
 			semaType := interpreter.ConvertStaticToSemaType(staticType)
 			// NOTE: not invocation.Self, as that is only set for composite values
-			dynamicTypeResults := DynamicTypeResults{}
-			dynamicType := self.DynamicType(interpreter, dynamicTypeResults)
+			dynamicType := self.DynamicType(interpreter, SeenReferences{})
 			result := interpreter.IsSubType(dynamicType, semaType)
 			return BoolValue(result)
 		},
 	)
 }
 
-func (interpreter *Interpreter) getTypeFunction(self Value) HostFunctionValue {
+func (interpreter *Interpreter) getTypeFunction(self Value) *HostFunctionValue {
 	return NewHostFunctionValue(
 		func(invocation Invocation) Value {
 			return TypeValue{

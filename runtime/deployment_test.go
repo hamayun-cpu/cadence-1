@@ -21,6 +21,7 @@ package runtime
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/onflow/cadence/runtime/tests/utils"
 	"strings"
 	"testing"
 
@@ -32,7 +33,6 @@ import (
 	"github.com/onflow/cadence/runtime/interpreter"
 	"github.com/onflow/cadence/runtime/sema"
 	"github.com/onflow/cadence/runtime/stdlib"
-	"github.com/onflow/cadence/runtime/tests/utils"
 )
 
 func TestRuntimeTransactionWithContractDeployment(t *testing.T) {
@@ -80,9 +80,10 @@ func TestRuntimeTransactionWithContractDeployment(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		importedValue := importValue(inter, codeHashValue, sema.ByteArrayType)
+		codeHash, err := importValue(inter, codeHashValue, sema.ByteArrayType)
+		require.NoError(t, err)
 
-		actualCodeHash, err := interpreter.ByteArrayValueToByteSlice(importedValue)
+		actualCodeHash, err := interpreter.ByteArrayValueToByteSlice(codeHash)
 		require.NoError(t, err)
 
 		require.Equal(t, expectedCodeHash[:], actualCodeHash)

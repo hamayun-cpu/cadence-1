@@ -41,7 +41,7 @@ func TestInterpretEnum(t *testing.T) {
     `)
 
 	assert.IsType(t,
-		interpreter.HostFunctionValue{},
+		&interpreter.HostFunctionValue{},
 		inter.Globals["E"].GetValue(),
 	)
 }

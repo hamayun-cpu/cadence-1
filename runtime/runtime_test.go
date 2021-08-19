@@ -141,6 +141,7 @@ type testRuntimeInterface struct {
 	programs                   map[common.LocationID]*interpreter.Program
 	implementationDebugLog     func(message string) error
 	validatePublicKey          func(publicKey *PublicKey) (bool, error)
+	getAccountContractNames    func(address Address) ([]string, error)
 }
 
 // testRuntimeInterface should implement Interface
@@ -403,6 +404,14 @@ func (i *testRuntimeInterface) ValidatePublicKey(key *PublicKey) (bool, error) {
 	}
 
 	return i.validatePublicKey(key)
+}
+
+func (i *testRuntimeInterface) GetAccountContractNames(address Address) ([]string, error) {
+	if i.getAccountContractNames == nil {
+		return []string{}, nil
+	}
+
+	return i.getAccountContractNames(address)
 }
 
 func TestRuntimeImport(t *testing.T) {
@@ -829,7 +838,7 @@ func TestRuntimeTransactionWithArguments(t *testing.T) {
 			`,
 			args: [][]byte{
 				jsoncdc.MustEncode(cadence.NewInt(42)),
-				jsoncdc.MustEncode(cadence.NewString("foo")),
+				jsoncdc.MustEncode(cadence.String("foo")),
 			},
 			expectedLogs: []string{"42", `"foo"`},
 		},
@@ -856,7 +865,7 @@ func TestRuntimeTransactionWithArguments(t *testing.T) {
 			  }
 			`,
 			args: [][]byte{
-				jsoncdc.MustEncode(cadence.NewString("foo")),
+				jsoncdc.MustEncode(cadence.String("foo")),
 			},
 			check: func(t *testing.T, err error) {
 				assert.Error(t, err)
@@ -922,7 +931,7 @@ func TestRuntimeTransactionWithArguments(t *testing.T) {
 					cadence.NewDictionary(
 						[]cadence.KeyValuePair{
 							{
-								Key:   cadence.NewString("y"),
+								Key:   cadence.String("y"),
 								Value: cadence.NewInt(42),
 							},
 						},
@@ -945,7 +954,7 @@ func TestRuntimeTransactionWithArguments(t *testing.T) {
 					cadence.NewDictionary(
 						[]cadence.KeyValuePair{
 							{
-								Key:   cadence.NewString("y"),
+								Key:   cadence.String("y"),
 								Value: cadence.NewInt(42),
 							},
 						},
@@ -978,7 +987,7 @@ func TestRuntimeTransactionWithArguments(t *testing.T) {
 			args: [][]byte{
 				jsoncdc.MustEncode(
 					cadence.
-						NewStruct([]cadence.Value{cadence.NewString("bar")}).
+						NewStruct([]cadence.Value{cadence.String("bar")}).
 						WithType(&cadence.StructType{
 							Location:            utils.TestLocation,
 							QualifiedIdentifier: "Foo",
@@ -1015,7 +1024,7 @@ func TestRuntimeTransactionWithArguments(t *testing.T) {
 				jsoncdc.MustEncode(
 					cadence.NewArray([]cadence.Value{
 						cadence.
-							NewStruct([]cadence.Value{cadence.NewString("bar")}).
+							NewStruct([]cadence.Value{cadence.String("bar")}).
 							WithType(&cadence.StructType{
 								Location:            utils.TestLocation,
 								QualifiedIdentifier: "Foo",
@@ -1130,7 +1139,7 @@ func TestRuntimeScriptArguments(t *testing.T) {
 			`,
 			args: [][]byte{
 				jsoncdc.MustEncode(cadence.NewInt(42)),
-				jsoncdc.MustEncode(cadence.NewString("foo")),
+				jsoncdc.MustEncode(cadence.String("foo")),
 			},
 			expectedLogs: []string{"42", `"foo"`},
 		},
@@ -1155,7 +1164,7 @@ func TestRuntimeScriptArguments(t *testing.T) {
 				}
 			`,
 			args: [][]byte{
-				jsoncdc.MustEncode(cadence.NewString("foo")),
+				jsoncdc.MustEncode(cadence.String("foo")),
 			},
 			check: func(t *testing.T, err error) {
 				assert.Error(t, err)
@@ -1214,7 +1223,7 @@ func TestRuntimeScriptArguments(t *testing.T) {
 					cadence.NewDictionary(
 						[]cadence.KeyValuePair{
 							{
-								Key:   cadence.NewString("y"),
+								Key:   cadence.String("y"),
 								Value: cadence.NewInt(42),
 							},
 						},
@@ -1235,7 +1244,7 @@ func TestRuntimeScriptArguments(t *testing.T) {
 					cadence.NewDictionary(
 						[]cadence.KeyValuePair{
 							{
-								Key:   cadence.NewString("y"),
+								Key:   cadence.String("y"),
 								Value: cadence.NewInt(42),
 							},
 						},
@@ -1266,7 +1275,7 @@ func TestRuntimeScriptArguments(t *testing.T) {
 			args: [][]byte{
 				jsoncdc.MustEncode(
 					cadence.
-						NewStruct([]cadence.Value{cadence.NewString("bar")}).
+						NewStruct([]cadence.Value{cadence.String("bar")}).
 						WithType(&cadence.StructType{
 							Location:            utils.TestLocation,
 							QualifiedIdentifier: "Foo",
@@ -1301,7 +1310,7 @@ func TestRuntimeScriptArguments(t *testing.T) {
 				jsoncdc.MustEncode(
 					cadence.NewArray([]cadence.Value{
 						cadence.
-							NewStruct([]cadence.Value{cadence.NewString("bar")}).
+							NewStruct([]cadence.Value{cadence.String("bar")}).
 							WithType(&cadence.StructType{
 								Location:            utils.TestLocation,
 								QualifiedIdentifier: "Foo",
@@ -2293,7 +2302,7 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
 
 	t.Parallel()
 
-	test := func(code string, expected cadence.Value) {
+	test := func(t *testing.T, code string, expected cadence.Value) {
 
 		runtime := NewInterpreterRuntime()
 
@@ -2331,7 +2340,7 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
 
 		t.Parallel()
 
-		test(
+		test(t,
 			`
               pub fun main(): ((): Int) {
                   return fun (): Int {
@@ -2347,7 +2356,7 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
 
 		t.Parallel()
 
-		test(
+		test(t,
 			`
               pub fun main(): &Address {
                   let a: Address = 0x1
@@ -2362,7 +2371,7 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
 
 		t.Parallel()
 
-		test(
+		test(t,
 			`
               pub fun main(): [&AnyStruct] {
                   let refs: [&AnyStruct] = []
@@ -2372,7 +2381,9 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
             `,
 			cadence.NewArray([]cadence.Value{
 				cadence.NewArray([]cadence.Value{
-					nil,
+					cadence.NewArray([]cadence.Value{
+						nil,
+					}),
 				}),
 			}),
 		)
@@ -2382,7 +2393,7 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
 
 		t.Parallel()
 
-		test(
+		test(t,
 			`
               pub fun main(): StoragePath {
                   return /storage/foo
@@ -2399,7 +2410,7 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
 
 		t.Parallel()
 
-		test(
+		test(t,
 			`
               pub fun main(): PublicPath {
                   return /public/foo
@@ -2416,7 +2427,7 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
 
 		t.Parallel()
 
-		test(
+		test(t,
 			`
               pub fun main(): PrivatePath {
                   return /private/foo
@@ -2433,7 +2444,7 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
 
 		t.Parallel()
 
-		test(
+		test(t,
 			`
               pub fun main(): CapabilityPath {
                   return /public/foo
@@ -2450,7 +2461,7 @@ func TestRuntimeScriptReturnTypeNotReturnableError(t *testing.T) {
 
 		t.Parallel()
 
-		test(
+		test(t,
 			`
               pub fun main(): Path {
                   return /storage/foo
@@ -5922,7 +5933,7 @@ func TestRuntimeUpdateCodeCaching(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Equal(t, cadence.NewString("1"), result1)
+	require.Equal(t, cadence.String("1"), result1)
 
 	// The deployed hello world contract was imported,
 	// assert that it was stored in the program storage
@@ -5971,7 +5982,7 @@ func TestRuntimeUpdateCodeCaching(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Equal(t, cadence.NewString("2"), result2)
+	require.Equal(t, cadence.String("2"), result2)
 }
 
 func TestRuntimeNoProgramsHitForToplevelPrograms(t *testing.T) {
@@ -6498,4 +6509,84 @@ func TestRuntimePanics(t *testing.T) {
 		},
 	)
 	assert.Error(t, err)
+}
+
+func TestRuntimeGetCapability(t *testing.T) {
+
+	t.Parallel()
+
+	t.Run("invalid", func(t *testing.T) {
+
+		t.Parallel()
+
+		runtime := NewInterpreterRuntime()
+
+		script := []byte(`
+          pub fun main(): Capability {
+              let dict: {Int: AuthAccount} = {}
+              let ref = &dict as &{Int: AnyStruct}
+              ref[0] = getAccount(0x01) as AnyStruct
+              return dict.values[0].getCapability(/private/xxx)
+          }
+        `)
+
+		runtimeInterface := &testRuntimeInterface{}
+
+		nextTransactionLocation := newTransactionLocationGenerator()
+
+		_, err := runtime.ExecuteScript(
+			Script{
+				Source: script,
+			},
+			Context{
+				Interface: runtimeInterface,
+				Location:  nextTransactionLocation(),
+			},
+		)
+
+		var typeErr interpreter.TypeMismatchError
+		require.ErrorAs(t, err, &typeErr)
+	})
+
+	t.Run("valid", func(t *testing.T) {
+
+		t.Parallel()
+
+		runtime := NewInterpreterRuntime()
+
+		script := []byte(`
+          pub fun main(): Capability {
+              let dict: {Int: AuthAccount} = {}
+              let ref = &dict as &{Int: AnyStruct}
+              ref[0] = getAccount(0x01) as AnyStruct
+              return dict.values[0].getCapability(/public/xxx)
+          }
+        `)
+
+		runtimeInterface := &testRuntimeInterface{}
+
+		nextTransactionLocation := newTransactionLocationGenerator()
+
+		res, err := runtime.ExecuteScript(
+			Script{
+				Source: script,
+			},
+			Context{
+				Interface: runtimeInterface,
+				Location:  nextTransactionLocation(),
+			},
+		)
+
+		require.NoError(t, err)
+		require.Equal(t,
+			cadence.Capability{
+				Address: cadence.BytesToAddress([]byte{0x1}),
+				Path: cadence.Path{
+					Domain:     "public",
+					Identifier: "xxx",
+				},
+			},
+			res,
+		)
+	})
 }

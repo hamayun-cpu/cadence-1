@@ -196,7 +196,7 @@ func (r *interpreterRuntime) ExecuteScript(script Script, context Context) (cade
 		script.Source,
 		context,
 		functions,
-		stdlib.BuiltinValues,
+		stdlib.BuiltinValues(),
 		checkerOptions,
 		true,
 		importResolutionResults{},
@@ -241,7 +241,7 @@ func (r *interpreterRuntime) ExecuteScript(script Script, context Context) (cade
 		context,
 		runtimeStorage,
 		functions,
-		stdlib.BuiltinValues,
+		stdlib.BuiltinValues(),
 		interpreterOptions,
 		checkerOptions,
 		interpret,
@@ -252,7 +252,10 @@ func (r *interpreterRuntime) ExecuteScript(script Script, context Context) (cade
 
 	// Export before committing storage
 
-	result := exportValue(value)
+	result, err := exportValue(value)
+	if err != nil {
+		return nil, err
+	}
 
 	// Write back all stored values, which were actually just cached, back into storage.
 
@@ -274,7 +277,16 @@ func scriptExecutionFunction(
 	arguments [][]byte,
 	runtimeInterface Interface,
 ) interpretFunc {
-	return func(inter *interpreter.Interpreter) (interpreter.Value, error) {
+	return func(inter *interpreter.Interpreter) (value interpreter.Value, err error) {
+
+		// Recover internal panics and return them as an error.
+		// For example, the argument validation might attempt to
+		// load contract code for non-existing types
+
+		defer inter.RecoverErrors(func(internalErr error) {
+			err = internalErr
+		})
+
 		values, err := validateArgumentParams(
 			inter,
 			runtimeInterface,
@@ -399,7 +411,7 @@ func (r *interpreterRuntime) InvokeContractFunction(
 		context,
 		runtimeStorage,
 		functions,
-		stdlib.BuiltinValues,
+		stdlib.BuiltinValues(),
 		interpreterOptions,
 		checkerOptions,
 		nil,
@@ -463,7 +475,7 @@ func (r *interpreterRuntime) InvokeContractFunction(
 		return nil, newError(err, context)
 	}
 
-	return ExportValue(value, inter), nil
+	return ExportValue(value, inter)
 }
 
 func (r *interpreterRuntime) convertArgument(
@@ -509,7 +521,7 @@ func (r *interpreterRuntime) ExecuteTransaction(script Script, context Context) 
 		script.Source,
 		context,
 		functions,
-		stdlib.BuiltinValues,
+		stdlib.BuiltinValues(),
 		checkerOptions,
 		true,
 		importResolutionResults{},
@@ -578,7 +590,7 @@ func (r *interpreterRuntime) ExecuteTransaction(script Script, context Context) 
 		context,
 		runtimeStorage,
 		functions,
-		stdlib.BuiltinValues,
+		stdlib.BuiltinValues(),
 		interpreterOptions,
 		checkerOptions,
 		r.transactionExecutionFunction(
@@ -625,7 +637,16 @@ func (r *interpreterRuntime) transactionExecutionFunction(
 	runtimeInterface Interface,
 	authorizerValues []interpreter.Value,
 ) interpretFunc {
-	return func(inter *interpreter.Interpreter) (interpreter.Value, error) {
+	return func(inter *interpreter.Interpreter) (value interpreter.Value, err error) {
+
+		// Recover internal panics and return them as an error.
+		// For example, the argument validation might attempt to
+		// load contract code for non-existing types
+
+		defer inter.RecoverErrors(func(internalErr error) {
+			err = internalErr
+		})
+
 		values, err := validateArgumentParams(
 			inter,
 			runtimeInterface,
@@ -635,6 +656,7 @@ func (r *interpreterRuntime) transactionExecutionFunction(
 		if err != nil {
 			return nil, err
 		}
+
 		values = append(values, authorizerValues...)
 		err = inter.InvokeTransaction(0, values...)
 		return nil, err
@@ -685,11 +707,15 @@ func validateArgumentParams(
 			}
 		}
 
-		arg := importValue(inter, value, parameterType)
+		arg, err := importValue(inter, value, parameterType)
+		if err != nil {
+			return nil, &InvalidEntryPointArgumentError{
+				Index: i,
+				Err:   err,
+			}
+		}
 
-		dynamicTypeResults := interpreter.DynamicTypeResults{}
-
-		dynamicType := arg.DynamicType(inter, dynamicTypeResults)
+		dynamicType := arg.DynamicType(inter, interpreter.SeenReferences{})
 
 		// Ensure the argument is of an importable type
 		if !dynamicType.IsImportable() {
@@ -784,7 +810,7 @@ func (r *interpreterRuntime) ParseAndCheckProgram(code []byte, context Context) 
 		code,
 		context,
 		functions,
-		stdlib.BuiltinValues,
+		stdlib.BuiltinValues(),
 		checkerOptions,
 		true,
 		importResolutionResults{},
@@ -1004,7 +1030,7 @@ func (r *interpreterRuntime) newInterpreter(
 			func(
 				inter *interpreter.Interpreter,
 				compositeType *sema.CompositeType,
-				constructorGenerator func(common.Address) interpreter.HostFunctionValue,
+				constructorGenerator func(common.Address) *interpreter.HostFunctionValue,
 				invocationRange ast.Range,
 			) *interpreter.CompositeValue {
 
@@ -1338,8 +1364,10 @@ func (r *interpreterRuntime) emitEvent(
 		Fields: fields,
 	}
 
-	var err error
-	exportedEvent := exportEvent(eventValue)
+	exportedEvent, err := exportEvent(eventValue, seenReferences{})
+	if err != nil {
+		return err
+	}
 	wrapPanic(func() {
 		err = runtimeInterface.EmitEvent(exportedEvent)
 	})
@@ -1368,8 +1396,10 @@ func (r *interpreterRuntime) emitAccountEvent(
 		))
 	}
 
-	var err error
-	exportedEvent := exportEvent(eventValue)
+	exportedEvent, err := exportEvent(eventValue, seenReferences{})
+	if err != nil {
+		panic(err)
+	}
 	wrapPanic(func() {
 		err = runtimeInterface.EmitEvent(exportedEvent)
 	})
@@ -1518,7 +1548,7 @@ func storageCapacityGetFunction(addressValue interpreter.AddressValue, runtimeIn
 func (r *interpreterRuntime) newAddPublicKeyFunction(
 	addressValue interpreter.AddressValue,
 	runtimeInterface Interface,
-) interpreter.HostFunctionValue {
+) *interpreter.HostFunctionValue {
 	return interpreter.NewHostFunctionValue(
 		func(invocation interpreter.Invocation) interpreter.Value {
 			publicKeyValue := invocation.Arguments[0].(*interpreter.ArrayValue)
@@ -1554,7 +1584,7 @@ func (r *interpreterRuntime) newAddPublicKeyFunction(
 func (r *interpreterRuntime) newRemovePublicKeyFunction(
 	addressValue interpreter.AddressValue,
 	runtimeInterface Interface,
-) interpreter.HostFunctionValue {
+) *interpreter.HostFunctionValue {
 	return interpreter.NewHostFunctionValue(
 		func(invocation interpreter.Invocation) interpreter.Value {
 			index := invocation.Arguments[0].(interpreter.IntValue)
@@ -1615,7 +1645,7 @@ func formatContractKey(name string) string {
 func (r *interpreterRuntime) loadContract(
 	inter *interpreter.Interpreter,
 	compositeType *sema.CompositeType,
-	constructorGenerator func(common.Address) interpreter.HostFunctionValue,
+	constructorGenerator func(common.Address) *interpreter.HostFunctionValue,
 	invocationRange ast.Range,
 	runtimeStorage *runtimeStorage,
 ) *interpreter.CompositeValue {
@@ -1733,7 +1763,7 @@ func (r *interpreterRuntime) instantiateContract(
 			func(
 				inter *interpreter.Interpreter,
 				compositeType *sema.CompositeType,
-				constructorGenerator func(common.Address) interpreter.HostFunctionValue,
+				constructorGenerator func(common.Address) *interpreter.HostFunctionValue,
 				invocationRange ast.Range,
 			) *interpreter.CompositeValue {
 
@@ -1819,6 +1849,7 @@ func (r *interpreterRuntime) getPublicAccount(
 		storageUsedGetFunction(accountAddress, runtimeInterface, runtimeStorage),
 		storageCapacityGetFunction(accountAddress, runtimeInterface),
 		r.newPublicAccountKeys(accountAddress, runtimeInterface),
+		r.newPublicAccountContracts(accountAddress, runtimeInterface, runtimeStorage),
 	)
 }
 
@@ -1953,11 +1984,16 @@ func (r *interpreterRuntime) newAuthAccountContracts(
 			checkerOptions,
 			true,
 		),
-		r.newAuthAccountContractsGetFunction(
+		r.newAccountContractsGetFunction(
 			addressValue,
 			context.Interface,
 		),
 		r.newAuthAccountContractsRemoveFunction(
+			addressValue,
+			context.Interface,
+			runtimeStorage,
+		),
+		r.newAccountContractsGetNamesFunction(
 			addressValue,
 			context.Interface,
 			runtimeStorage,
@@ -1993,7 +2029,7 @@ func (r *interpreterRuntime) newAuthAccountContractsChangeFunction(
 	interpreterOptions []interpreter.Option,
 	checkerOptions []sema.Option,
 	isUpdate bool,
-) interpreter.HostFunctionValue {
+) *interpreter.HostFunctionValue {
 	return interpreter.NewHostFunctionValue(
 		func(invocation interpreter.Invocation) interpreter.Value {
 
@@ -2106,7 +2142,7 @@ func (r *interpreterRuntime) newAuthAccountContractsChangeFunction(
 				code,
 				context,
 				functions,
-				stdlib.BuiltinValues,
+				stdlib.BuiltinValues(),
 				checkerOptions,
 				storeProgram,
 				importResolutionResults{},
@@ -2314,7 +2350,7 @@ func (r *interpreterRuntime) updateAccountContractCode(
 	if createContract {
 
 		functions := r.standardLibraryFunctions(context, runtimeStorage, interpreterOptions, checkerOptions)
-		values := stdlib.BuiltinValues
+		values := stdlib.BuiltinValues()
 
 		contractValue, err = r.instantiateContract(
 			program,
@@ -2358,10 +2394,10 @@ func (r *interpreterRuntime) updateAccountContractCode(
 	return nil
 }
 
-func (r *interpreterRuntime) newAuthAccountContractsGetFunction(
+func (r *interpreterRuntime) newAccountContractsGetFunction(
 	addressValue interpreter.AddressValue,
 	runtimeInterface Interface,
-) interpreter.HostFunctionValue {
+) *interpreter.HostFunctionValue {
 	return interpreter.NewHostFunctionValue(
 		func(invocation interpreter.Invocation) interpreter.Value {
 
@@ -2400,7 +2436,7 @@ func (r *interpreterRuntime) newAuthAccountContractsRemoveFunction(
 	addressValue interpreter.AddressValue,
 	runtimeInterface Interface,
 	runtimeStorage *runtimeStorage,
-) interpreter.HostFunctionValue {
+) *interpreter.HostFunctionValue {
 	return interpreter.NewHostFunctionValue(
 		func(invocation interpreter.Invocation) interpreter.Value {
 
@@ -2493,6 +2529,38 @@ func (r *interpreterRuntime) newAuthAccountContractsRemoveFunction(
 	)
 }
 
+func (r *interpreterRuntime) newAccountContractsGetNamesFunction(
+	addressValue interpreter.AddressValue,
+	runtimeInterface Interface,
+	runtimeStorage *runtimeStorage,
+) func() *interpreter.ArrayValue {
+	address := addressValue.ToAddress()
+
+	return func() *interpreter.ArrayValue {
+		var names []string
+		var err error
+		wrapPanic(func() {
+			names, err = runtimeInterface.GetAccountContractNames(address)
+		})
+		if err != nil {
+			panic(err)
+		}
+
+		values := make([]interpreter.Value, len(names))
+		for i, name := range names {
+			values[i] = interpreter.NewStringValue(name)
+		}
+
+		return interpreter.NewArrayValue(
+			interpreter.VariableSizedStaticType{
+				Type: interpreter.PrimitiveStaticTypeString,
+			},
+			runtimeStorage,
+			values...,
+		)
+	}
+}
+
 func (r *interpreterRuntime) onStatementHandler() interpreter.OnStatementFunc {
 	if r.coverageReport == nil {
 		return nil
@@ -2531,7 +2599,7 @@ func (r *interpreterRuntime) executeNonProgram(interpret interpretFunc, context 
 		return nil, newError(err, context)
 	}
 
-	return exportValue(value), nil
+	return exportValue(value)
 }
 
 func (r *interpreterRuntime) ReadStored(address common.Address, path cadence.Path, context Context) (cadence.Value, error) {
@@ -2600,7 +2668,7 @@ func NewBlockValue(storage interpreter.Storage, block Block) interpreter.BlockVa
 func (r *interpreterRuntime) newAccountKeysAddFunction(
 	addressValue interpreter.AddressValue,
 	runtimeInterface Interface,
-) interpreter.HostFunctionValue {
+) *interpreter.HostFunctionValue {
 	return interpreter.NewHostFunctionValue(
 		func(invocation interpreter.Invocation) interpreter.Value {
 			publicKeyValue := invocation.Arguments[0].(*interpreter.CompositeValue)
@@ -2645,7 +2713,7 @@ func (r *interpreterRuntime) newAccountKeysAddFunction(
 func (r *interpreterRuntime) newAccountKeysGetFunction(
 	addressValue interpreter.AddressValue,
 	runtimeInterface Interface,
-) interpreter.HostFunctionValue {
+) *interpreter.HostFunctionValue {
 	return interpreter.NewHostFunctionValue(
 		func(invocation interpreter.Invocation) interpreter.Value {
 			index := invocation.Arguments[0].(interpreter.IntValue).ToInt()
@@ -2670,10 +2738,12 @@ func (r *interpreterRuntime) newAccountKeysGetFunction(
 
 			inter := invocation.Interpreter
 
-			return NewAccountKeyValue(
-				inter,
-				accountKey,
-				inter.PublicKeyValidationHandler,
+			return interpreter.NewSomeValueNonCopying(
+				NewAccountKeyValue(
+					inter,
+					accountKey,
+					inter.PublicKeyValidationHandler,
+				),
 			)
 		},
 	)
@@ -2682,7 +2752,7 @@ func (r *interpreterRuntime) newAccountKeysGetFunction(
 func (r *interpreterRuntime) newAccountKeysRevokeFunction(
 	addressValue interpreter.AddressValue,
 	runtimeInterface Interface,
-) interpreter.HostFunctionValue {
+) *interpreter.HostFunctionValue {
 	return interpreter.NewHostFunctionValue(
 		func(invocation interpreter.Invocation) interpreter.Value {
 			indexValue := invocation.Arguments[0].(interpreter.IntValue)
@@ -2716,10 +2786,12 @@ func (r *interpreterRuntime) newAccountKeysRevokeFunction(
 				},
 			)
 
-			return NewAccountKeyValue(
-				inter,
-				accountKey,
-				inter.PublicKeyValidationHandler,
+			return interpreter.NewSomeValueNonCopying(
+				NewAccountKeyValue(
+					inter,
+					accountKey,
+					inter.PublicKeyValidationHandler,
+				),
 			)
 		},
 	)
@@ -2734,6 +2806,25 @@ func (r *interpreterRuntime) newPublicAccountKeys(addressValue interpreter.Addre
 	)
 }
 
+func (r *interpreterRuntime) newPublicAccountContracts(
+	addressValue interpreter.AddressValue,
+	inter Interface,
+	runtimeStorage *runtimeStorage,
+) *interpreter.CompositeValue {
+	return interpreter.NewPublicAccountContractsValue(
+		addressValue,
+		r.newAccountContractsGetFunction(
+			addressValue,
+			inter,
+		),
+		r.newAccountContractsGetNamesFunction(
+			addressValue,
+			inter,
+			runtimeStorage,
+		),
+	)
+}
+
 func NewPublicKeyFromValue(
 	inter *interpreter.Interpreter,
 	publicKey *interpreter.CompositeValue,
@@ -2741,7 +2832,6 @@ func NewPublicKeyFromValue(
 	*PublicKey,
 	error,
 ) {
-
 	fields := publicKey.Fields
 
 	// publicKey field

@@ -124,5 +124,8 @@ func (interpreter *Interpreter) declareTransactionEntryPoint(declaration *ast.Tr
 			)
 		})
 
-	interpreter.Transactions = append(interpreter.Transactions, &transactionFunction)
+	interpreter.Transactions = append(
+		interpreter.Transactions,
+		transactionFunction,
+	)
 }

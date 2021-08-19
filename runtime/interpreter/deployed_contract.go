@@ -50,7 +50,7 @@ func (v DeployedContractValue) Walk(walkChild func(Value)) {
 
 var deployedContractDynamicType DynamicType = DeployedContractDynamicType{}
 
-func (DeployedContractValue) DynamicType(_ *Interpreter, _ DynamicTypeResults) DynamicType {
+func (DeployedContractValue) DynamicType(_ *Interpreter, _ SeenReferences) DynamicType {
 	return deployedContractDynamicType
 }
 
@@ -59,15 +59,15 @@ func (DeployedContractValue) StaticType() StaticType {
 }
 
 func (v DeployedContractValue) String() string {
-	return v.RecursiveString(StringResults{})
+	return v.RecursiveString(SeenReferences{})
 }
 
-func (v DeployedContractValue) RecursiveString(results StringResults) string {
+func (v DeployedContractValue) RecursiveString(seenReferences SeenReferences) string {
 	return fmt.Sprintf(
 		"DeployedContract(address: %s, name: %s, code: %s)",
-		v.Address.RecursiveString(results),
-		v.Name.RecursiveString(results),
-		v.Code.RecursiveString(results),
+		v.Address.RecursiveString(seenReferences),
+		v.Name.RecursiveString(seenReferences),
+		v.Code.RecursiveString(seenReferences),
 	)
 }
 

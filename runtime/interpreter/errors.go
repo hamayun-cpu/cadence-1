@@ -424,7 +424,7 @@ func (e InvocationArgumentTypeError) Error() string {
 }
 
 // ValueTransferTypeError
-
+//
 type ValueTransferTypeError struct {
 	TargetType sema.Type
 	LocationRange
@@ -434,6 +434,21 @@ func (e ValueTransferTypeError) Error() string {
 	return fmt.Sprintf(
 		"invalid transfer of value: expected %s",
 		e.TargetType.QualifiedString(),
+	)
+}
+
+// ResourceConstructionError
+//
+type ResourceConstructionError struct {
+	CompositeType *sema.CompositeType
+	LocationRange
+}
+
+func (e ResourceConstructionError) Error() string {
+	return fmt.Sprintf(
+		"cannot create resource %s: outside of declaring location %s",
+		e.CompositeType.QualifiedString(),
+		e.CompositeType.Location.String(),
 	)
 }
 

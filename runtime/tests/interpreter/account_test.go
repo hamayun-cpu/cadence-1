@@ -88,6 +88,11 @@ func testAccount(
 			interpreter.NewPublicAccountKeysValue(
 				nil,
 			),
+			interpreter.NewPublicAccountContractsValue(
+				address,
+				nil,
+				nil,
+			),
 		),
 		Kind: common.DeclarationKindConstant,
 	}

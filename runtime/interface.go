@@ -118,6 +118,8 @@ type Interface interface {
 	ImplementationDebugLog(message string) error
 	// ValidatePublicKey verifies the validity of a public key.
 	ValidatePublicKey(key *PublicKey) (bool, error)
+	// GetAccountContractNames returns the names of all contracts deployed in an account.
+	GetAccountContractNames(address Address) ([]string, error)
 }
 
 type Metrics interface {

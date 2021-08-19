@@ -85,13 +85,6 @@ func TestRuntimeScriptParameterTypeValidation(t *testing.T) {
 			},
 		}
 
-		// TODO: remove once importValue returns an error
-		defer func() {
-			if r := recover(); r != nil {
-				err, _ = r.(error)
-			}
-		}()
-
 		_, err = rt.ExecuteScript(
 			Script{
 				Source:    []byte(script),
@@ -558,13 +551,6 @@ func TestRuntimeTransactionParameterTypeValidation(t *testing.T) {
 				return json.Decode(b)
 			},
 		}
-
-		// TODO: remove once importValue returns an error
-		defer func() {
-			if r := recover(); r != nil {
-				err, _ = r.(error)
-			}
-		}()
 
 		return rt.ExecuteTransaction(
 			Script{
