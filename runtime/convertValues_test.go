@@ -51,7 +51,14 @@ func TestExportValue(t *testing.T) {
 
 			t.Parallel()
 
-			actual, err := exportValueWithInterpreter(tt.value, nil, seenReferences{})
+			inter, err := interpreter.NewInterpreter(
+				nil,
+				TestLocation,
+				interpreter.WithStorage(interpreter.NewInMemoryStorage()),
+			)
+			require.NoError(t, err)
+
+			actual, err := exportValueWithInterpreter(tt.value, inter, seenReferences{})
 			if tt.expected == nil {
 				require.Error(t, err)
 			} else {
@@ -108,7 +115,7 @@ func TestExportValue(t *testing.T) {
 				interpreter.VariableSizedStaticType{
 					Type: interpreter.PrimitiveStaticTypeAnyStruct,
 				},
-				runtimeStorage{},
+				interpreter.NewInMemoryStorage(),
 				[]interpreter.Value{}...),
 			expected: cadence.NewArray([]cadence.Value{}),
 		},
@@ -118,7 +125,7 @@ func TestExportValue(t *testing.T) {
 				interpreter.VariableSizedStaticType{
 					Type: interpreter.PrimitiveStaticTypeAnyStruct,
 				},
-				runtimeStorage{},
+				interpreter.NewInMemoryStorage(),
 				[]interpreter.Value{
 					interpreter.NewIntValueFromInt64(42),
 					interpreter.NewStringValue("foo"),
@@ -136,7 +143,7 @@ func TestExportValue(t *testing.T) {
 					KeyType:   interpreter.PrimitiveStaticTypeString,
 					ValueType: interpreter.PrimitiveStaticTypeAnyStruct,
 				},
-				runtimeStorage{},
+				interpreter.NewInMemoryStorage(),
 			),
 			expected: cadence.NewDictionary([]cadence.KeyValuePair{}),
 		},
@@ -147,7 +154,7 @@ func TestExportValue(t *testing.T) {
 					KeyType:   interpreter.PrimitiveStaticTypeString,
 					ValueType: interpreter.PrimitiveStaticTypeAnyStruct,
 				},
-				runtimeStorage{},
+				interpreter.NewInMemoryStorage(),
 				interpreter.NewStringValue("a"),
 				interpreter.NewIntValueFromInt64(1),
 				interpreter.NewStringValue("b"),
@@ -305,7 +312,7 @@ func TestExportValue(t *testing.T) {
 			value: interpreter.DeployedContractValue{
 				Address: interpreter.AddressValue{},
 				Name:    interpreter.NewStringValue("C"),
-				Code:    interpreter.NewArrayValue(nil, runtimeStorage{}),
+				Code:    interpreter.NewArrayValue(nil, interpreter.NewInMemoryStorage()),
 			},
 			expected: nil,
 		},
@@ -332,7 +339,14 @@ func TestImportValue(t *testing.T) {
 
 			t.Parallel()
 
-			actual, err := importValue(nil, tt.value, tt.expectedType)
+			inter, err := interpreter.NewInterpreter(
+				nil,
+				TestLocation,
+				interpreter.WithStorage(interpreter.NewInMemoryStorage()),
+			)
+			require.NoError(t, err)
+
+			actual, err := importValue(inter, tt.value, tt.expectedType)
 
 			if tt.expected == nil {
 				require.Error(t, err)
@@ -386,7 +400,7 @@ func TestImportValue(t *testing.T) {
 				interpreter.VariableSizedStaticType{
 					Type: interpreter.PrimitiveStaticTypeAnyStruct,
 				},
-				runtimeStorage{},
+				interpreter.NewInMemoryStorage(),
 				[]interpreter.Value{}...),
 			expectedType: &sema.VariableSizedType{
 				Type: sema.AnyStructType,
@@ -402,7 +416,7 @@ func TestImportValue(t *testing.T) {
 				interpreter.VariableSizedStaticType{
 					Type: interpreter.PrimitiveStaticTypeAnyStruct,
 				},
-				runtimeStorage{},
+				interpreter.NewInMemoryStorage(),
 				[]interpreter.Value{
 					interpreter.NewIntValueFromInt64(42),
 					interpreter.NewStringValue("foo"),
@@ -419,7 +433,7 @@ func TestImportValue(t *testing.T) {
 					KeyType:   interpreter.PrimitiveStaticTypeString,
 					ValueType: interpreter.PrimitiveStaticTypeAnyStruct,
 				},
-				runtimeStorage{},
+				interpreter.NewInMemoryStorage(),
 			),
 			value: cadence.NewDictionary([]cadence.KeyValuePair{}),
 			expectedType: &sema.DictionaryType{
@@ -434,7 +448,7 @@ func TestImportValue(t *testing.T) {
 					KeyType:   interpreter.PrimitiveStaticTypeString,
 					ValueType: interpreter.PrimitiveStaticTypeAnyStruct,
 				},
-				runtimeStorage{},
+				interpreter.NewInMemoryStorage(),
 				interpreter.NewStringValue("a"),
 				interpreter.NewIntValueFromInt64(1),
 				interpreter.NewStringValue("b"),
