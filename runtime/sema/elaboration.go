@@ -82,6 +82,9 @@ type Elaboration struct {
 	EffectivePredeclaredTypes           map[string]TypeDeclaration
 	isChecking                          bool
 	ReferenceExpressionBorrowTypes      map[*ast.ReferenceExpression]*ReferenceType
+
+	// Deprecated: Only here to maintain API compatibility.
+	ArrayExpressionElementType map[*ast.ArrayExpression]Type
 }
 
 func NewElaboration() *Elaboration {
