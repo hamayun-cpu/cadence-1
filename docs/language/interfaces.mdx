@@ -281,7 +281,7 @@ let withdrawn <- token.withdraw(amount: 10)
 // `withdrawn.balance` is `10`
 
 // Deposit the withdrawn token into another one.
-let receiver: @ExampleToken <- // ...
+let receiver: @ExampleToken <- create ExampleToken(balance: 0) // creating a new token
 receiver.deposit(<-withdrawn)
 
 // Run-time error: The precondition of function `withdraw` in interface
